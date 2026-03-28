@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Internal storage for permanently stored document photos -->
+    <files-path
+        name="documents"
+        path="documents/" />
+    <!-- Internal storage for vehicle photos -->
+    <files-path
+        name="vehicles"
+        path="vehicles/" />
+    <!-- Cache for temporary camera captures before copying -->
+    <cache-path
+        name="camera_temp"
+        path="camera/" />
+</paths>
