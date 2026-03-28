@@ -10,7 +10,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -19,16 +18,16 @@ import com.moto.tracker.domain.model.CategoryExpense
 import com.moto.tracker.domain.model.MonthlyExpense
 import com.moto.tracker.ui.theme.MotoColors
 import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
-import com.patrykandpatrick.vico.compose.cartesian.axis.rememberBottomAxis
-import com.patrykandpatrick.vico.compose.cartesian.axis.rememberStartAxis
+import com.patrykandpatrick.vico.compose.cartesian.axis.*
 import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
 import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.common.component.rememberLineComponent
-import com.patrykandpatrick.vico.core.cartesian.axis.AxisItemPlacer
+import com.patrykandpatrick.vico.core.cartesian.axis.HorizontalAxis
+import com.patrykandpatrick.vico.core.cartesian.axis.VerticalAxis
 import com.patrykandpatrick.vico.core.cartesian.data.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.cartesian.data.columnSeries
 import com.patrykandpatrick.vico.core.cartesian.layer.ColumnCartesianLayer
-import com.patrykandpatrick.vico.core.common.shape.Shape
+import com.patrykandpatrick.vico.core.common.shape.CorneredShape
 import java.util.Calendar
 
 private val MONTH_LABELS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -211,14 +210,14 @@ private fun MonthlyExpenseChart(months: List<MonthlyExpense>) {
                             rememberLineComponent(
                                 color = MotoColors.Primary40,
                                 thickness = 16.dp,
-                                shape = Shape.rounded(allPercent = 50)
+                                shape = CorneredShape.Pill
                             )
                         )
                     ),
-                    startAxis = rememberStartAxis(),
-                    bottomAxis = rememberBottomAxis(
+                    startAxis = VerticalAxis.rememberStart(),
+                    bottomAxis = HorizontalAxis.rememberBottom(
                         valueFormatter = { _, x, _ -> MONTH_LABELS.getOrElse(x.toInt()) { "" } },
-                        itemPlacer = AxisItemPlacer.Horizontal.default(addExtremeLabelPadding = true)
+                        itemPlacer = HorizontalAxis.ItemPlacer.aligned()
                     )
                 ),
                 modelProducer = modelProducer,

@@ -96,9 +96,9 @@ fun KmLogScreen(
                 Text("Log Today's Km")
             }
 
-            if (uiState.successMessage != null) {
+            uiState.successMessage?.let { msg ->
                 Spacer(Modifier.height(8.dp))
-                Text(uiState.successMessage, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
+                Text(msg, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodyMedium)
             }
 
             Spacer(Modifier.height(16.dp))

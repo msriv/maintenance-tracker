@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MaintenanceTaskDao {
-    @Query("SELECT * FROM maintenance_tasks WHERE vehicleId = :vehicleId AND isActive = 1 ORDER BY nextDueDate ASC NULLS LAST")
+    @Query("SELECT * FROM maintenance_tasks WHERE vehicleId = :vehicleId AND isActive = 1 ORDER BY CASE WHEN nextDueDate IS NULL THEN 1 ELSE 0 END, nextDueDate ASC")
     fun observeByVehicle(vehicleId: Long): Flow<List<MaintenanceTaskEntity>>
 
     @Query("SELECT * FROM maintenance_tasks WHERE id = :id")
