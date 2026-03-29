@@ -9,6 +9,9 @@ on:
       tag:
         description: 'Version tag (e.g. v0.0.3-dev or v1.0.0)'
         required: true
+      release_notes:
+        description: "Release notes (markdown). Leave blank to auto-generate from commits."
+        required: false
 
 jobs:
   release:
@@ -95,4 +98,5 @@ jobs:
           name: MotoTracker ${{ steps.vars.outputs.version }}
           prerelease: ${{ steps.vars.outputs.prerelease }}
           files: ${{ steps.apk.outputs.path }}
-          generate_release_notes: true
+          body: ${{ github.event.inputs.release_notes }}
+          generate_release_notes: ${{ github.event.inputs.release_notes == '' }}
