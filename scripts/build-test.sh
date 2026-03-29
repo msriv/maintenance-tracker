@@ -6,6 +6,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Pin to Java 21 locally (Codespace ships Java 25 which breaks Kotlin compiler)
+JAVA21="/usr/local/sdkman/candidates/java/21.0.9-ms"
+if [ -d "$JAVA21" ]; then
+  export JAVA_HOME="$JAVA21"
+fi
+
 echo "=== MotoTracker local build test ==="
 
 # 1. google-services.json must exist
