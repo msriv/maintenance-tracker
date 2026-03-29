@@ -51,4 +51,32 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindUserPreferencesRepository(impl: UserPreferencesRepositoryImpl): UserPreferencesRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindRecallRepository(impl: RecallRepositoryImpl): RecallRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPartsRepository(impl: PartsRepositoryImpl): PartsRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindSeasonalChecklistRepository(impl: SeasonalChecklistRepositoryImpl): SeasonalChecklistRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindServiceCenterRepository(impl: ServiceCenterRepositoryImpl): ServiceCenterRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindRideLogRepository(impl: RideLogRepositoryImpl): RideLogRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindRegistryRepository(impl: RegistryRepositoryImpl): RegistryRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCloudBackupRepository(impl: CloudBackupRepositoryImpl): CloudBackupRepository
 }

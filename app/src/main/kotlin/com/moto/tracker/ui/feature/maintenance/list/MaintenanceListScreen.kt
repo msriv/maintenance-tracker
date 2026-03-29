@@ -30,6 +30,7 @@ fun MaintenanceListScreen(
     onEditTask: (Long) -> Unit,
     onKmLog: () -> Unit,
     onManufacturerSchedule: () -> Unit,
+    onApplyTemplate: () -> Unit = {},
     viewModel: MaintenanceListViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -45,6 +46,9 @@ fun MaintenanceListScreen(
                     }
                     IconButton(onClick = onManufacturerSchedule) {
                         Icon(Icons.Default.MenuBook, contentDescription = "Service Schedule")
+                    }
+                    IconButton(onClick = onApplyTemplate) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "Apply OEM Template")
                     }
                 }
             )

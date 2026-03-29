@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 fun SettingsScreen(
+    onNavigateBackup: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -87,19 +88,33 @@ fun SettingsScreen(
         HorizontalDivider()
         Spacer(Modifier.height(8.dp))
 
+        // Data section
+        SettingsSectionHeader("Data")
+
+        SettingsClickRow(
+            icon = Icons.Default.CloudUpload,
+            title = "Cloud Backup",
+            subtitle = "Back up and restore your data securely",
+            onClick = onNavigateBackup
+        )
+
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider()
+        Spacer(Modifier.height(8.dp))
+
         // About section
         SettingsSectionHeader("About")
 
         SettingsInfoRow(
             icon = Icons.Default.Info,
             title = "MotoTracker",
-            subtitle = "Version 1.0 — All data stored locally on your device"
+            subtitle = "Version 1.0 — Local-first with optional cloud backup"
         )
 
         SettingsInfoRow(
             icon = Icons.Default.Lock,
             title = "Privacy",
-            subtitle = "No telemetry, no internet permission, no third-party analytics"
+            subtitle = "No account required. No third-party analytics. Cloud backup uses your anonymous device ID."
         )
 
         Spacer(Modifier.height(32.dp))

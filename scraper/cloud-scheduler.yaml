@@ -1,0 +1,8 @@
+name: mototracker-scraper-weekly
+schedule: "0 2 * * 0"
+timeZone: UTC
+httpTarget:
+  uri: https://run.googleapis.com/v1/namespaces/mototracker-491619/jobs/mototracker-scraper:run
+  httpMethod: POST
+  oauthToken:
+    serviceAccountEmail: mototracker-scraper@mototracker-491619.iam.gserviceaccount.com

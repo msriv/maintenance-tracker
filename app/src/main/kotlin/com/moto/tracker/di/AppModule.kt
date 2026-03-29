@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import androidx.room.Room
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 import com.moto.tracker.data.local.AppDatabase
 import com.moto.tracker.data.local.dao.*
 import dagger.Module
@@ -14,6 +16,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import javax.inject.Named
 import javax.inject.Singleton
 
@@ -61,6 +65,39 @@ object AppModule {
 
     @Provides
     fun provideExpenseViewDao(db: AppDatabase): ExpenseViewDao = db.expenseViewDao()
+
+    @Provides
+    fun provideRecallAlertDao(db: AppDatabase): RecallAlertDao = db.recallAlertDao()
+
+    @Provides
+    fun providePartsInventoryDao(db: AppDatabase): PartsInventoryDao = db.partsInventoryDao()
+
+    @Provides
+    fun provideSeasonalChecklistDao(db: AppDatabase): SeasonalChecklistDao = db.seasonalChecklistDao()
+
+    @Provides
+    fun provideServiceCenterDao(db: AppDatabase): ServiceCenterDao = db.serviceCenterDao()
+
+    @Provides
+    fun provideRideLogDao(db: AppDatabase): RideLogDao = db.rideLogDao()
+
+    @Provides
+    fun provideRegistryCacheDao(db: AppDatabase): RegistryCacheDao = db.registryCacheDao()
+
+    @Provides
+    @Singleton
+    fun provideFirestore(): FirebaseFirestore = FirebaseFirestore.getInstance()
+
+    @Provides
+    @Singleton
+    fun provideFirebaseAuth(): FirebaseAuth = FirebaseAuth.getInstance()
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
 
     @Provides
     @Singleton

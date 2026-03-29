@@ -2,10 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!--
-        PRIVACY: No INTERNET permission — this app is fully offline.
-        No data leaves the device. No telemetry, no analytics, no ads.
-    -->
+    <!-- Internet access for Firebase sync and recall data fetch -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Camera for document photo capture -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -94,6 +92,18 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
+        </receiver>
+
+        <!-- Home screen widget for maintenance status -->
+        <receiver
+            android:name=".ui.widget.MaintenanceStatusWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/maintenance_widget_info" />
         </receiver>
 
     </application>

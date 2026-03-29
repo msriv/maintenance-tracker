@@ -35,6 +35,17 @@ import com.moto.tracker.ui.feature.settings.SettingsScreen
 import com.moto.tracker.ui.feature.vehicle.addedit.AddEditVehicleScreen
 import com.moto.tracker.ui.feature.vehicle.detail.VehicleDetailScreen
 import com.moto.tracker.ui.feature.vehicle.list.VehicleListScreen
+import com.moto.tracker.ui.feature.recall.RecallAlertsScreen
+import com.moto.tracker.ui.feature.maintenance.template.TemplateApplyScreen
+import com.moto.tracker.ui.feature.parts.PartsInventoryScreen
+import com.moto.tracker.ui.feature.parts.addedit.AddEditPartScreen
+import com.moto.tracker.ui.feature.seasonal.SeasonalChecklistsScreen
+import com.moto.tracker.ui.feature.servicecenter.ServiceCenterDirectoryScreen
+import com.moto.tracker.ui.feature.servicecenter.addedit.AddEditServiceCenterScreen
+import com.moto.tracker.ui.feature.ridelog.RideLogListScreen
+import com.moto.tracker.ui.feature.ridelog.add.AddRideLogScreen
+import com.moto.tracker.ui.feature.backup.CloudBackupScreen
+import com.moto.tracker.ui.feature.registry.VehicleRegistryScreen
 import kotlinx.serialization.Serializable
 
 // — Type-safe navigation destinations —
@@ -57,6 +68,17 @@ import kotlinx.serialization.Serializable
 @Serializable object AnalyticsDestination
 @Serializable object ExportDestination
 @Serializable object SettingsDestination
+@Serializable data class RecallAlertsDestination(val vehicleId: Long)
+@Serializable data class TemplateApplyDestination(val vehicleId: Long)
+@Serializable data class PartsInventoryDestination(val vehicleId: Long)
+@Serializable data class AddEditPartDestination(val vehicleId: Long, val partId: Long = -1L)
+@Serializable object SeasonalChecklistsDestination
+@Serializable object ServiceCenterDirectoryDestination
+@Serializable data class AddEditServiceCenterDestination(val centerId: Long = -1L)
+@Serializable data class RideLogListDestination(val vehicleId: Long)
+@Serializable data class AddRideLogDestination(val vehicleId: Long)
+@Serializable object CloudBackupDestination
+@Serializable object VehicleRegistryDestination
 
 private data class BottomNavItem(
     val label: String,
@@ -75,6 +97,7 @@ fun AppNavHost() {
         BottomNavItem("Analytics", Icons.Default.BarChart, AnalyticsDestination),
         BottomNavItem("Export", Icons.Default.FileDownload, ExportDestination),
         BottomNavItem("Settings", Icons.Default.Settings, SettingsDestination),
+        BottomNavItem("Registry", Icons.Default.Search, VehicleRegistryDestination),
     )
 
     val showBottomBar = currentDestination?.hierarchy?.any { dest ->
@@ -138,7 +161,10 @@ fun AppNavHost() {
                     onNavigateDocuments = { navController.navigate(DocumentListDestination(dest.vehicleId)) },
                     onNavigateMaintenance = { navController.navigate(MaintenanceListDestination(dest.vehicleId)) },
                     onNavigateFuel = { navController.navigate(FuelLogListDestination(dest.vehicleId)) },
-                    onNavigateAppointments = { navController.navigate(AppointmentListDestination(dest.vehicleId)) }
+                    onNavigateAppointments = { navController.navigate(AppointmentListDestination(dest.vehicleId)) },
+                    onNavigateRecalls = { navController.navigate(RecallAlertsDestination(dest.vehicleId)) },
+                    onNavigateParts = { navController.navigate(PartsInventoryDestination(dest.vehicleId)) },
+                    onNavigateRideLog = { navController.navigate(RideLogListDestination(dest.vehicleId)) }
                 )
             }
 
@@ -177,7 +203,8 @@ fun AppNavHost() {
                     onLogMaintenance = { taskId -> navController.navigate(LogMaintenanceDestination(taskId)) },
                     onEditTask = { taskId -> navController.navigate(AddEditMaintenanceTaskDestination(dest.vehicleId, taskId)) },
                     onKmLog = { navController.navigate(KmLogDestination(dest.vehicleId)) },
-                    onManufacturerSchedule = { navController.navigate(ManufacturerScheduleDestination) }
+                    onManufacturerSchedule = { navController.navigate(ManufacturerScheduleDestination) },
+                    onApplyTemplate = { navController.navigate(TemplateApplyDestination(dest.vehicleId)) }
                 )
             }
             composable<AddEditMaintenanceTaskDestination> {
@@ -244,6 +271,68 @@ fun AppNavHost() {
                 )
             }
 
+            // — New Feature Routes —
+            composable<RecallAlertsDestination> {
+                val dest = it.toRoute<RecallAlertsDestination>()
+                RecallAlertsScreen(vehicleId = dest.vehicleId, onBack = { navController.popBackStack() })
+            }
+            composable<TemplateApplyDestination> {
+                val dest = it.toRoute<TemplateApplyDestination>()
+                TemplateApplyScreen(vehicleId = dest.vehicleId, onBack = { navController.popBackStack() })
+            }
+            composable<PartsInventoryDestination> {
+                val dest = it.toRoute<PartsInventoryDestination>()
+                PartsInventoryScreen(
+                    vehicleId = dest.vehicleId,
+                    onBack = { navController.popBackStack() },
+                    onAddPart = { navController.navigate(AddEditPartDestination(dest.vehicleId)) },
+                    onEditPart = { partId -> navController.navigate(AddEditPartDestination(dest.vehicleId, partId)) }
+                )
+            }
+            composable<AddEditPartDestination> {
+                val dest = it.toRoute<AddEditPartDestination>()
+                AddEditPartScreen(
+                    vehicleId = dest.vehicleId,
+                    partId = dest.partId.takeIf { id -> id != -1L },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable<SeasonalChecklistsDestination> {
+                SeasonalChecklistsScreen(onBack = { navController.popBackStack() })
+            }
+            composable<ServiceCenterDirectoryDestination> {
+                ServiceCenterDirectoryScreen(
+                    onBack = { navController.popBackStack() },
+                    onAddCenter = { navController.navigate(AddEditServiceCenterDestination()) },
+                    onEditCenter = { centerId -> navController.navigate(AddEditServiceCenterDestination(centerId)) }
+                )
+            }
+            composable<AddEditServiceCenterDestination> {
+                val dest = it.toRoute<AddEditServiceCenterDestination>()
+                AddEditServiceCenterScreen(
+                    centerId = dest.centerId.takeIf { id -> id != -1L },
+                    onBack = { navController.popBackStack() }
+                )
+            }
+            composable<RideLogListDestination> {
+                val dest = it.toRoute<RideLogListDestination>()
+                RideLogListScreen(
+                    vehicleId = dest.vehicleId,
+                    onBack = { navController.popBackStack() },
+                    onAddRide = { navController.navigate(AddRideLogDestination(dest.vehicleId)) }
+                )
+            }
+            composable<AddRideLogDestination> {
+                val dest = it.toRoute<AddRideLogDestination>()
+                AddRideLogScreen(vehicleId = dest.vehicleId, onBack = { navController.popBackStack() })
+            }
+            composable<CloudBackupDestination> {
+                CloudBackupScreen(onBack = { navController.popBackStack() })
+            }
+            composable<VehicleRegistryDestination> {
+                VehicleRegistryScreen(onBack = { navController.popBackStack() })
+            }
+
             // — Bottom nav roots —
             composable<AnalyticsDestination> {
                 AnalyticsScreen()
@@ -252,7 +341,9 @@ fun AppNavHost() {
                 ExportScreen()
             }
             composable<SettingsDestination> {
-                SettingsScreen()
+                SettingsScreen(
+                    onNavigateBackup = { navController.navigate(CloudBackupDestination) }
+                )
             }
         }
     }

@@ -15,9 +15,18 @@ import com.moto.tracker.data.local.entity.*
         FuelLogEntity::class,
         ServiceAppointmentEntity::class,
         ManufacturerScheduleEntity::class,
+        RecallAlertEntity::class,
+        PartsInventoryEntity::class,
+        SeasonalChecklistEntity::class,
+        ServiceCenterEntity::class,
+        RideLogEntity::class,
+        RegistryMakeEntity::class,
+        RegistryModelEntity::class,
+        RegistryScheduleEntity::class,
+        BestPracticeEntity::class,
     ],
     views = [ExpenseView::class],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,4 +39,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun serviceAppointmentDao(): ServiceAppointmentDao
     abstract fun manufacturerScheduleDao(): ManufacturerScheduleDao
     abstract fun expenseViewDao(): ExpenseViewDao
+    abstract fun recallAlertDao(): RecallAlertDao
+    abstract fun partsInventoryDao(): PartsInventoryDao
+    abstract fun seasonalChecklistDao(): SeasonalChecklistDao
+    abstract fun serviceCenterDao(): ServiceCenterDao
+    abstract fun rideLogDao(): RideLogDao
+    abstract fun registryCacheDao(): RegistryCacheDao
 }
