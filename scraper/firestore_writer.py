@@ -120,6 +120,13 @@ class FirestoreWriter:
         logger.info("Upserted %d recalls", count)
         return count
 
+    def get_existing_make_ids(self) -> set[str]:
+        """Return the set of make IDs already present in registry_makes."""
+        docs = self.db.collection("registry_makes").stream()
+        ids = {doc.id for doc in docs}
+        logger.info("Found %d existing makes in Firestore", len(ids))
+        return ids
+
     def update_sync_metadata(self, run_id: str, stats: dict) -> None:
         """
         Write run metadata to sync_metadata/latest and an archival timestamped doc.

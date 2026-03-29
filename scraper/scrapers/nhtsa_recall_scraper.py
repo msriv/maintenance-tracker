@@ -4,14 +4,37 @@ API: https://api.nhtsa.gov/recalls/recallsByVehicle
 """
 import logging
 import re
+import threading
+import time
 from datetime import datetime
 from typing import Optional
 
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config
 from models import RecallAlert, RegistryModel
 from scrapers.base_scraper import BaseScraper
+
+
+class _RateLimiter:
+    """
+    Thread-safe token bucket rate limiter.
+    Ensures at most `rate` requests per second globally across all threads.
+    """
+
+    def __init__(self, rate: float):
+        self._min_interval = 1.0 / rate
+        self._lock = threading.Lock()
+        self._last = 0.0
+
+    def acquire(self) -> None:
+        with self._lock:
+            now = time.monotonic()
+            wait = self._min_interval - (now - self._last)
+            if wait > 0:
+                time.sleep(wait)
+            self._last = time.monotonic()
 
 logger = logging.getLogger(__name__)
 
@@ -61,23 +84,80 @@ def _parse_date(raw: Optional[str]) -> str:
     return raw
 
 
-def _model_year_range(model: RegistryModel) -> range:
-    """Generate the range of model years to query for a RegistryModel."""
+def _model_query_years(model: RegistryModel) -> list[int]:
+    """
+    Return the minimal set of years to query for a model.
+    Querying year_from catches recalls on early units; querying year_to (or
+    current year) catches recalls on the latest units. NHTSA campaign records
+    include their full year_from/year_to range, so two queries are enough to
+    discover all campaigns that overlap with a model's production window.
+    """
     current_year = datetime.utcnow().year
-    year_to = model.year_to if model.year_to is not None else current_year
-    # Clamp range to a sensible window; NHTSA covers back to ~1970s
-    return range(max(model.year_from, 1980), min(year_to, current_year) + 1)
+    start = max(model.year_from, 1980)
+    end = min(model.year_to if model.year_to is not None else current_year, current_year)
+    if start == end:
+        return [start]
+    return [start, end]
 
 
 class NHTSARecallScraper(BaseScraper):
     """Fetch recall data from the NHTSA public recalls API."""
 
+    # Shared across all threads in this scraper instance
+    # Default: 1 request/second — conservative, unlikely to be flagged
+    _NHTSA_RATE = float(os.getenv("NHTSA_RATE_LIMIT", "1.0"))
+    _BATCH_SIZE = int(os.getenv("NHTSA_BATCH_SIZE", "100"))
+    _BATCH_PAUSE = float(os.getenv("NHTSA_BATCH_PAUSE_SECONDS", "10.0"))
+    _WORKERS = int(os.getenv("NHTSA_WORKERS", "5"))
+
+    def __init__(self):
+        super().__init__()
+        # One shared rate limiter for all threads — enforces global req/s ceiling
+        self._nhtsa_limiter = _RateLimiter(rate=self._NHTSA_RATE)
+
+    def get(self, url, params=None, timeout=30, skip_rate_limit=False):
+        """Override to treat HTTP 400 as a valid empty-result response.
+
+        NHTSA returns 400 (with a valid JSON body) for makes/models it does
+        not recognise — motorcycles and niche brands in particular. Passing
+        the response through lets the caller inspect the body rather than
+        silently dropping it.
+
+        Uses a shared thread-safe rate limiter instead of BaseScraper's
+        per-instance limiter, so parallel workers don't bypass the ceiling.
+        """
+        if not skip_rate_limit:
+            self._nhtsa_limiter.acquire()
+        import requests as _requests  # noqa: PLC0415 — lazy to avoid circular import
+        try:
+            response = self.session.get(url, params=params, timeout=timeout)
+            if response.status_code in (200, 400):
+                return response
+            if response.status_code == 404:
+                self.logger.debug("404 for %s — skipping", url)
+                return None
+            response.raise_for_status()
+            return response
+        except _requests.exceptions.HTTPError as exc:
+            self.logger.warning("HTTP error fetching %s: %s", url, exc)
+            return None
+        except _requests.exceptions.ConnectionError as exc:
+            self.logger.warning("Connection error fetching %s: %s", url, exc)
+            return None
+        except _requests.exceptions.Timeout:
+            self.logger.warning("Timeout fetching %s", url)
+            return None
+        except _requests.exceptions.RequestException as exc:
+            self.logger.error("Unexpected error fetching %s: %s", url, exc)
+            return None
+
     def fetch_recalls_for_vehicle(
         self, make: str, model: str, year: int
-    ) -> list[RecallAlert]:
+    ) -> list[RecallAlert] | None:
         """
         Query the NHTSA API for a single make/model/year combination.
-        Returns a (possibly empty) list of RecallAlert objects.
+        Returns a list of RecallAlert objects (empty = no recalls found),
+        or None if a network/parse error occurred.
         """
         params = {"make": make, "model": model, "modelYear": str(year)}
         self.logger.debug("Querying NHTSA for %s %s %d", make, model, year)
@@ -87,7 +167,7 @@ class NHTSARecallScraper(BaseScraper):
             self.logger.warning(
                 "No response from NHTSA for %s %s %d", make, model, year
             )
-            return []
+            return None
 
         try:
             data = response.json()
@@ -95,7 +175,7 @@ class NHTSARecallScraper(BaseScraper):
             self.logger.warning(
                 "Invalid JSON from NHTSA for %s %s %d", make, model, year
             )
-            return []
+            return None
 
         results = data.get("results", [])
         if not results:
@@ -142,26 +222,95 @@ class NHTSARecallScraper(BaseScraper):
 
         return alerts
 
-    def fetch_all_recalls(self, models: list[RegistryModel]) -> list[RecallAlert]:
+    def fetch_all_recalls(
+        self,
+        models: list[RegistryModel],
+        max_consecutive_errors: int = config.MAX_RETRIES,
+    ) -> list[RecallAlert]:
         """
-        Fetch recalls for every model in the provided list, across all model years.
-        De-duplicates by campaign number so the same recall isn't returned multiple times.
+        Fetch recalls for every model using a thread pool with rate limiting and
+        batch pausing.
+
+        Strategy:
+        - Each model is queried for year_from and year_to only (2 queries max),
+          cutting total requests from ~20k to ~3k for a full model list.
+        - A shared RateLimiter caps the global request rate (NHTSA_RATE_LIMIT/s).
+        - Queries are processed in batches (NHTSA_BATCH_SIZE), with a pause of
+          NHTSA_BATCH_PAUSE_SECONDS between batches so NHTSA doesn't see a
+          sustained burst.
+        - Aborts early if error count reaches max_consecutive_errors.
+
+        Env vars (all optional):
+          NHTSA_RATE_LIMIT           requests/sec   default 1.0
+          NHTSA_BATCH_SIZE           queries/batch  default 100
+          NHTSA_BATCH_PAUSE_SECONDS  seconds        default 10.0
+          NHTSA_WORKERS              thread count   default 5
         """
-        self.logger.info("Fetching recalls for %d models", len(models))
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        tasks: list[tuple[str, str, int]] = []
+        for m in models:
+            for year in _model_query_years(m):
+                tasks.append((m.make, m.model, year))
+
+        total = len(tasks)
+        self.logger.info(
+            "Fetching recalls: %d models → %d queries | "
+            "rate=%.1f/s  batch=%d  pause=%.0fs  workers=%d",
+            len(models), total,
+            self._NHTSA_RATE, self._BATCH_SIZE, self._BATCH_PAUSE, self._WORKERS,
+        )
+
         seen_campaign_ids: set[str] = set()
         all_recalls: list[RecallAlert] = []
+        error_count = 0
+        completed = 0
 
-        for registry_model in models:
-            for year in _model_year_range(registry_model):
-                recalls = self.fetch_recalls_for_vehicle(
-                    make=registry_model.make,
-                    model=registry_model.model,
-                    year=year,
+        # Slice tasks into batches
+        batches = [tasks[i:i + self._BATCH_SIZE]
+                   for i in range(0, total, self._BATCH_SIZE)]
+
+        for batch_num, batch in enumerate(batches, start=1):
+            self.logger.info(
+                "Recall batch %d/%d (%d queries) — %d found so far",
+                batch_num, len(batches), len(batch), len(all_recalls),
+            )
+
+            with ThreadPoolExecutor(max_workers=self._WORKERS) as pool:
+                futures = {
+                    pool.submit(
+                        self.fetch_recalls_for_vehicle,
+                        make=make, model=model, year=year,
+                    ): (make, model, year)
+                    for make, model, year in batch
+                }
+                for future in as_completed(futures):
+                    completed += 1
+                    recalls = future.result()
+
+                    if recalls is None:
+                        error_count += 1
+                        if error_count >= max_consecutive_errors:
+                            self.logger.error(
+                                "Aborting recall fetch: %d consecutive errors "
+                                "after %d/%d queries",
+                                error_count, completed, total,
+                            )
+                            return all_recalls
+                    else:
+                        error_count = 0
+                        for recall in recalls:
+                            if recall.id not in seen_campaign_ids:
+                                seen_campaign_ids.add(recall.id)
+                                all_recalls.append(recall)
+
+            # Pause between batches — let NHTSA breathe
+            if batch_num < len(batches):
+                self.logger.info(
+                    "Batch %d done — pausing %.0fs before next batch",
+                    batch_num, self._BATCH_PAUSE,
                 )
-                for recall in recalls:
-                    if recall.id not in seen_campaign_ids:
-                        seen_campaign_ids.add(recall.id)
-                        all_recalls.append(recall)
+                time.sleep(self._BATCH_PAUSE)
 
         self.logger.info("Total unique recalls fetched: %d", len(all_recalls))
         return all_recalls

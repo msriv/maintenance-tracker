@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # MotoTracker Scraper — GCP deployment script
-# Usage: ./deploy.sh [--run-now]
-# Pass --run-now to trigger the Cloud Run Job immediately after deployment.
+#
+# Usage:
+#   ./deploy.sh              — build image + deploy both jobs + set up scheduler
+#   ./deploy.sh --run-now    — same, then immediately trigger the full-scrape job
+#
 set -euo pipefail
 
 PROJECT_ID="mototracker-491619"
@@ -9,23 +12,27 @@ REGION="us-central1"
 SERVICE_ACCOUNT="mototracker-scraper"
 SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT}@${PROJECT_ID}.iam.gserviceaccount.com"
 IMAGE="gcr.io/${PROJECT_ID}/mototracker-scraper:latest"
-JOB_NAME="mototracker-scraper"
-SCHEDULER_JOB_NAME="mototracker-scraper-weekly"
-RUN_NOW=false
 
-# Parse optional --run-now flag
+# Two Cloud Run Jobs sharing the same image
+FULL_JOB="mototracker-scraper-full"
+INCREMENTAL_JOB="mototracker-scraper-incremental"
+
+# Weekly scheduler triggers the incremental job
+SCHEDULER_JOB_NAME="mototracker-scraper-weekly"
+
+RUN_NOW=false
 for arg in "$@"; do
   case $arg in
-    --run-now)
-      RUN_NOW=true
-      ;;
+    --run-now) RUN_NOW=true ;;
   esac
 done
 
+ENV_VARS="SCRAPER_PROJECT_ID=${PROJECT_ID},LOG_LEVEL=INFO,RATE_LIMIT_SECONDS=1.0,MAX_RETRIES=3,NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-},NHTSA_RATE_LIMIT=1.0,NHTSA_BATCH_SIZE=100,NHTSA_BATCH_PAUSE_SECONDS=10,NHTSA_WORKERS=5"
+
 echo "=== MotoTracker Scraper Deployment ==="
-echo "Project:        ${PROJECT_ID}"
-echo "Region:         ${REGION}"
-echo "Image:          ${IMAGE}"
+echo "Project:         ${PROJECT_ID}"
+echo "Region:          ${REGION}"
+echo "Image:           ${IMAGE}"
 echo "Service account: ${SERVICE_ACCOUNT_EMAIL}"
 echo ""
 
@@ -46,7 +53,6 @@ gcloud services enable \
   containerregistry.googleapis.com \
   cloudbuild.googleapis.com \
   --project="${PROJECT_ID}"
-
 echo "      APIs enabled."
 
 # ------------------------------------------------------------------
@@ -55,7 +61,7 @@ echo "      APIs enabled."
 echo "[3/7] Creating service account '${SERVICE_ACCOUNT}'..."
 if gcloud iam service-accounts describe "${SERVICE_ACCOUNT_EMAIL}" \
     --project="${PROJECT_ID}" &>/dev/null; then
-  echo "      Service account already exists — skipping creation."
+  echo "      Service account already exists — skipping."
 else
   gcloud iam service-accounts create "${SERVICE_ACCOUNT}" \
     --display-name="MotoTracker Scraper" \
@@ -66,121 +72,127 @@ fi
 # ------------------------------------------------------------------
 # 4. Grant IAM roles
 # ------------------------------------------------------------------
-echo "[4/7] Granting IAM roles to service account..."
-
-# Datastore User — read/write access to Firestore
+echo "[4/7] Granting IAM roles..."
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
   --role="roles/datastore.user" \
-  --condition=None \
-  --quiet
+  --condition=None --quiet
 
-# Cloud Run Job Invoker — allows Cloud Scheduler to trigger the job
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
   --role="roles/run.invoker" \
-  --condition=None \
-  --quiet
-
+  --condition=None --quiet
 echo "      IAM roles granted."
 
 # ------------------------------------------------------------------
-# 5. Build and push Docker image to GCR
+# 5. Build and push Docker image
 # ------------------------------------------------------------------
-echo "[5/7] Building and pushing Docker image to GCR..."
-# Ensure we're in the scraper directory
+echo "[5/7] Building and pushing Docker image..."
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
-
-gcloud builds submit \
-  --tag "${IMAGE}" \
-  --project="${PROJECT_ID}" \
-  .
-
+gcloud builds submit --tag "${IMAGE}" --project="${PROJECT_ID}" .
 echo "      Image pushed: ${IMAGE}"
 
 # ------------------------------------------------------------------
-# 6. Create or update Cloud Run Job
+# 6. Deploy Cloud Run Jobs
 # ------------------------------------------------------------------
-echo "[6/7] Deploying Cloud Run Job '${JOB_NAME}'..."
+echo "[6/7] Deploying Cloud Run Jobs..."
 
-if gcloud run jobs describe "${JOB_NAME}" \
-    --region="${REGION}" \
-    --project="${PROJECT_ID}" &>/dev/null; then
-  echo "      Job exists — updating..."
-  gcloud run jobs update "${JOB_NAME}" \
-    --image="${IMAGE}" \
-    --region="${REGION}" \
-    --project="${PROJECT_ID}" \
-    --service-account="${SERVICE_ACCOUNT_EMAIL}" \
-    --set-env-vars="SCRAPER_PROJECT_ID=${PROJECT_ID},LOG_LEVEL=INFO,RATE_LIMIT_SECONDS=1.0,MAX_RETRIES=3" \
-    --max-retries=1 \
-    --task-timeout=3600
-else
-  echo "      Creating new job..."
-  gcloud run jobs create "${JOB_NAME}" \
-    --image="${IMAGE}" \
-    --region="${REGION}" \
-    --project="${PROJECT_ID}" \
-    --service-account="${SERVICE_ACCOUNT_EMAIL}" \
-    --set-env-vars="SCRAPER_PROJECT_ID=${PROJECT_ID},LOG_LEVEL=INFO,RATE_LIMIT_SECONDS=1.0,MAX_RETRIES=3" \
-    --max-retries=1 \
-    --task-timeout=3600
-fi
+_upsert_job() {
+  local job_name="$1"
+  local args="$2"
+  local timeout="$3"
+  local label="$4"
 
-echo "      Cloud Run Job deployed."
+  echo "      ${label}..."
+  if gcloud run jobs describe "${job_name}" \
+      --region="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
+    gcloud run jobs update "${job_name}" \
+      --image="${IMAGE}" \
+      --region="${REGION}" \
+      --project="${PROJECT_ID}" \
+      --service-account="${SERVICE_ACCOUNT_EMAIL}" \
+      --set-env-vars="${ENV_VARS}" \
+      --args="${args}" \
+      --max-retries=1 \
+      --task-timeout="${timeout}"
+  else
+    gcloud run jobs create "${job_name}" \
+      --image="${IMAGE}" \
+      --region="${REGION}" \
+      --project="${PROJECT_ID}" \
+      --service-account="${SERVICE_ACCOUNT_EMAIL}" \
+      --set-env-vars="${ENV_VARS}" \
+      --args="${args}" \
+      --max-retries=1 \
+      --task-timeout="${timeout}"
+  fi
+}
+
+# Full scrape: all sources, up to 2 hours
+_upsert_job "${FULL_JOB}"        "--all"         7200 \
+  "Full-scrape job '${FULL_JOB}' (run manually)"
+
+# Incremental: new makes + recalls only, 30 min should be plenty
+_upsert_job "${INCREMENTAL_JOB}" "--incremental" 1800 \
+  "Incremental job '${INCREMENTAL_JOB}' (weekly scheduler)"
+
+echo "      Both jobs deployed."
 
 # ------------------------------------------------------------------
-# 7. Create or update Cloud Scheduler job
+# 7. Schedule the incremental job (weekly, Sunday 02:00 UTC)
 # ------------------------------------------------------------------
-echo "[7/7] Setting up Cloud Scheduler job '${SCHEDULER_JOB_NAME}'..."
+echo "[7/7] Setting up Cloud Scheduler for incremental job..."
 
-JOB_URI="https://run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB_NAME}:run"
+INCREMENTAL_JOB_URI="https://run.googleapis.com/v2/projects/${PROJECT_ID}/locations/${REGION}/jobs/${INCREMENTAL_JOB}:run"
 
 if gcloud scheduler jobs describe "${SCHEDULER_JOB_NAME}" \
-    --location="${REGION}" \
-    --project="${PROJECT_ID}" &>/dev/null; then
+    --location="${REGION}" --project="${PROJECT_ID}" &>/dev/null; then
   echo "      Scheduler job exists — updating..."
   gcloud scheduler jobs update http "${SCHEDULER_JOB_NAME}" \
     --location="${REGION}" \
     --project="${PROJECT_ID}" \
     --schedule="0 2 * * 0" \
     --time-zone="UTC" \
-    --uri="${JOB_URI}" \
+    --uri="${INCREMENTAL_JOB_URI}" \
     --http-method=POST \
     --oauth-service-account-email="${SERVICE_ACCOUNT_EMAIL}"
 else
-  echo "      Creating new scheduler job..."
+  echo "      Creating scheduler job..."
   gcloud scheduler jobs create http "${SCHEDULER_JOB_NAME}" \
     --location="${REGION}" \
     --project="${PROJECT_ID}" \
     --schedule="0 2 * * 0" \
     --time-zone="UTC" \
-    --uri="${JOB_URI}" \
+    --uri="${INCREMENTAL_JOB_URI}" \
     --http-method=POST \
     --oauth-service-account-email="${SERVICE_ACCOUNT_EMAIL}"
 fi
 
-echo "      Cloud Scheduler job configured (runs every Sunday at 02:00 UTC)."
+echo "      Scheduler configured (incremental runs every Sunday at 02:00 UTC)."
 
 # ------------------------------------------------------------------
-# Optional: trigger an immediate run
+# Optional: trigger full scrape immediately
 # ------------------------------------------------------------------
 if [ "${RUN_NOW}" = true ]; then
   echo ""
-  echo "=== Triggering immediate execution of Cloud Run Job ==="
-  gcloud run jobs execute "${JOB_NAME}" \
+  echo "=== Triggering full scrape now ==="
+  gcloud run jobs execute "${FULL_JOB}" \
     --region="${REGION}" \
     --project="${PROJECT_ID}" \
     --wait
-  echo "=== Job execution completed ==="
+  echo "=== Full scrape completed ==="
 fi
 
 echo ""
 echo "=== Deployment complete! ==="
 echo ""
-echo "Useful commands:"
-echo "  Manual run:    gcloud run jobs execute ${JOB_NAME} --region=${REGION}"
-echo "  View logs:     gcloud logging read 'resource.type=cloud_run_job AND resource.labels.job_name=${JOB_NAME}' --limit=50 --format=json"
-echo "  Job status:    gcloud run jobs describe ${JOB_NAME} --region=${REGION}"
-echo "  Scheduler:     gcloud scheduler jobs describe ${SCHEDULER_JOB_NAME} --location=${REGION}"
+echo "Jobs:"
+echo "  Full scrape (manual):  gcloud run jobs execute ${FULL_JOB} --region=${REGION}"
+echo "  Incremental (manual):  gcloud run jobs execute ${INCREMENTAL_JOB} --region=${REGION}"
+echo ""
+echo "Logs:"
+echo "  Full:        gcloud logging read 'resource.labels.job_name=${FULL_JOB}' --limit=50"
+echo "  Incremental: gcloud logging read 'resource.labels.job_name=${INCREMENTAL_JOB}' --limit=50"
+echo ""
+echo "Scheduler:     gcloud scheduler jobs describe ${SCHEDULER_JOB_NAME} --location=${REGION}"

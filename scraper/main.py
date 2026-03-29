@@ -8,14 +8,95 @@ Usage:
 Default behaviour with no flags is equivalent to --all.
 """
 import argparse
+import json
 import logging
+import re
 import sys
+import urllib.request
 import uuid
 from datetime import datetime
 
 import config
 from firestore_writer import FirestoreWriter
-from scrapers import BikeScraper, NHTSARecallScraper, OEMScheduleScraper, get_best_practices
+from scrapers import BikeScraper, BikeWaleScraper, NHTSARecallScraper, OEMScheduleScraper, get_best_practices
+
+
+def _norm(s: str) -> str:
+    """Normalise a make/model name for dedup comparison: lowercase, alphanumeric only.
+    Strips source prefixes (e.g. 'bw_') before comparing."""
+    s = re.sub(r"^[a-z]{2}_", "", s)  # strip 2-char source prefix like 'bw_'
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def _dedup_makes(makes):
+    """Return makes deduplicated by normalised name, first entry wins."""
+    seen: dict[str, bool] = {}
+    out = []
+    for m in makes:
+        key = _norm(m.name)
+        if key not in seen:
+            seen[key] = True
+            out.append(m)
+        else:
+            logging.getLogger("main").debug(
+                "Dedup makes: dropping duplicate '%s' (id=%s)", m.name, m.id
+            )
+    return out
+
+
+def _dedup_models(models):
+    """
+    Return models deduplicated by (normalised make, normalised model, year_from).
+    First entry wins — bikez runs before BikeWale so bikez data takes priority
+    for bikes covered by both sources.
+    """
+    seen: dict[tuple, bool] = {}
+    out = []
+    dropped = 0
+    for m in models:
+        key = (_norm(m.make), _norm(m.model), m.year_from)
+        if key not in seen:
+            seen[key] = True
+            out.append(m)
+        else:
+            dropped += 1
+    if dropped:
+        logging.getLogger("main").info(
+            "Dedup models: dropped %d cross-source duplicates", dropped
+        )
+    return out
+
+
+def _notify_completion(run_id: str, stats: dict, success: bool) -> None:
+    """POST a run summary to NOTIFY_WEBHOOK_URL if configured.
+    Compatible with Slack incoming webhooks and any service that accepts
+    a JSON body with a 'text' key.
+    """
+    url = config.NOTIFY_WEBHOOK_URL
+    if not url:
+        return
+    status = "SUCCESS" if success else "FAILED"
+    lines = [
+        f"[{status}] MotoTracker scraper run finished",
+        f"Run ID: {run_id}",
+        f"Makes: {stats['makes_count']}  Models: {stats['models_count']}  "
+        f"Schedules: {stats['schedules_count']}  Recalls: {stats['recalls_count']}  "
+        f"Best practices: {stats['best_practices_count']}",
+    ]
+    if stats["errors"]:
+        lines.append(f"Errors ({len(stats['errors'])}): " + " | ".join(stats["errors"][:5]))
+    payload = json.dumps({"text": "\n".join(lines)}).encode()
+    try:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=10)
+        logging.getLogger("main").info("Completion notification sent to webhook")
+    except Exception as exc:
+        logging.getLogger("main").warning("Failed to send completion notification: %s", exc)
 
 
 def _configure_logging() -> None:
@@ -64,6 +145,14 @@ def _parse_args() -> argparse.Namespace:
         dest="run_all",
         help="Run all scrapers (default behaviour when no flag is given)",
     )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help=(
+            "Incremental mode: skip makes already in Firestore, only scrape new makes "
+            "and their models. Always includes recalls. Ideal for the weekly scheduled run."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -72,16 +161,23 @@ def main() -> None:
     logger = logging.getLogger("main")
     args = _parse_args()
 
-    # If no specific flag is given, run everything
-    run_all = args.run_all or not any(
-        [args.makes, args.models, args.schedules, args.recalls, args.best_practices]
-    )
-
-    run_makes = run_all or args.makes
-    run_models = run_all or args.models
-    run_schedules = run_all or args.schedules
-    run_recalls = run_all or args.recalls
-    run_best_practices = run_all or args.best_practices
+    # Incremental mode overrides individual flags: only new makes/models + recalls
+    if args.incremental:
+        run_makes = True
+        run_models = True
+        run_schedules = False
+        run_recalls = True
+        run_best_practices = False
+    else:
+        # If no specific flag is given, run everything
+        run_all = args.run_all or not any(
+            [args.makes, args.models, args.schedules, args.recalls, args.best_practices]
+        )
+        run_makes = run_all or args.makes
+        run_models = run_all or args.models
+        run_schedules = run_all or args.schedules
+        run_recalls = run_all or args.recalls
+        run_best_practices = run_all or args.best_practices
 
     run_id = f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     logger.info("=== MotoTracker scraper starting | run_id=%s ===", run_id)
@@ -115,7 +211,33 @@ def main() -> None:
     if run_makes or run_models:
         bike_scraper = BikeScraper()
 
-        if run_makes and run_models:
+        if args.incremental:
+            # Incremental: only scrape makes not already in Firestore
+            try:
+                all_makes = bike_scraper.scrape_makes()
+                existing_ids = writer.get_existing_make_ids()
+                makes = [m for m in all_makes if m.id not in existing_ids]
+                logger.info(
+                    "Incremental mode: %d new makes (of %d total), skipping %d already stored",
+                    len(makes),
+                    len(all_makes),
+                    len(existing_ids),
+                )
+                for make in makes:
+                    try:
+                        make_models = bike_scraper.scrape_models(make.id)
+                        models.extend(make_models)
+                    except Exception as exc:
+                        logger.error(
+                            "Bikez scrape_models failed for new make '%s': %s",
+                            make.id, exc, exc_info=True,
+                        )
+                        stats["errors"].append(f"bikez_scrape_models_{make.id}: {exc}")
+            except Exception as exc:
+                logger.error("Incremental makes scrape failed: %s", exc, exc_info=True)
+                stats["errors"].append(f"bikez_incremental: {exc}")
+                success = False
+        elif run_makes and run_models:
             # Single pass: scrape both together for efficiency
             try:
                 makes, models = bike_scraper.scrape_all()
@@ -155,6 +277,35 @@ def main() -> None:
                                 exc_info=True,
                             )
                             stats["errors"].append(f"bikez_scrape_models_{make.id}: {exc}")
+
+        # BikeWale — Indian market supplement
+        try:
+            bw_scraper = BikeWaleScraper()
+            if args.incremental:
+                existing_ids = existing_ids if "existing_ids" in dir() else writer.get_existing_make_ids()
+                bw_all_makes, bw_all_models = bw_scraper.scrape_all()
+                bw_new_makes = [m for m in bw_all_makes if m.id not in existing_ids]
+                bw_new_models = [
+                    m for m in bw_all_models
+                    if any(m.make == nm.id for nm in bw_new_makes)
+                ]
+                logger.info(
+                    "BikeWale incremental: %d new makes, %d new models",
+                    len(bw_new_makes), len(bw_new_models),
+                )
+                makes.extend(bw_new_makes)
+                models.extend(bw_new_models)
+            else:
+                bw_makes, bw_models = bw_scraper.scrape_all()
+                makes.extend(bw_makes)
+                models.extend(bw_models)
+        except Exception as exc:
+            logger.error("BikeWale scrape failed: %s", exc, exc_info=True)
+            stats["errors"].append(f"bikewale_scrape: {exc}")
+
+        makes = _dedup_makes(makes)
+        models = _dedup_models(models)
+        logger.info("After dedup: %d makes, %d models", len(makes), len(models))
 
         if run_makes and makes:
             try:
@@ -273,6 +424,8 @@ def main() -> None:
         logger.warning("  Errors encountered (%d):", len(stats["errors"]))
         for err in stats["errors"]:
             logger.warning("    - %s", err)
+
+    _notify_completion(run_id=run_id, stats=stats, success=success)
 
     if success:
         logger.info("=== Run completed successfully ===")
