@@ -231,7 +231,7 @@ private fun MakesGrid(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(horizontal = 16.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 96.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
@@ -368,7 +368,7 @@ private fun TypeFilterRow(
 @Composable
 private fun ModelsList(models: List<RegistryModel>) {
     LazyColumn(
-        contentPadding = PaddingValues(horizontal = 16.dp, top = 8.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
@@ -436,9 +436,10 @@ private fun ModelCard(model: RegistryModel) {
                         .fillMaxSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.72f)),
-                                startFraction = 0.45f,
-                                endFraction = 1f
+                                colorStops = arrayOf(
+                                    0.4f to Color.Transparent,
+                                    1f to Color.Black.copy(alpha = 0.72f)
+                                )
                             )
                         )
                 )
@@ -498,7 +499,7 @@ private fun ModelCard(model: RegistryModel) {
             // Variant chips
             if (model.variants.isNotEmpty()) {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 12.dp, bottom = 12.dp),
+                    contentPadding = PaddingValues(start = 12.dp, top = 0.dp, end = 12.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(model.variants) { variant ->
