@@ -20,6 +20,7 @@ class RegistryModel(BaseModel):
     variants: list[str] = Field(default_factory=list)  # e.g. ["Standard", "ABS", "SP"]
     vehicle_type: str  # "BIKE", "SCOOTER", "CAR", "TRUCK", "OTHER"
     displacement_cc: Optional[int] = None
+    image_url: Optional[str] = None  # Firebase Storage public URL for hero image
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 

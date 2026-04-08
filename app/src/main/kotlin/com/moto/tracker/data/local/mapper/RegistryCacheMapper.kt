@@ -39,6 +39,7 @@ fun RegistryModelEntity.toDomain(): RegistryModel = RegistryModel(
     variants = registryJson.decodeFromString<List<String>>(variantsJson),
     vehicleType = VehicleType.valueOf(vehicleType),
     displacementCc = displacementCc,
+    imageUrl = imageUrl,
     updatedAt = updatedAt
 )
 
@@ -51,6 +52,7 @@ fun RegistryModel.toEntity(): RegistryModelEntity = RegistryModelEntity(
     variantsJson = registryJson.encodeToString<List<String>>(variants),
     vehicleType = vehicleType.name,
     displacementCc = displacementCc,
+    imageUrl = imageUrl,
     updatedAt = updatedAt
 )
 

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any
 
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, storage
 
 from models import (
     BestPractice,
@@ -31,10 +31,15 @@ def _to_dict(obj: Any) -> dict:
 class FirestoreWriter:
     """Write scraped data to Firestore using batched writes."""
 
-    def __init__(self, project_id: str):
+    def __init__(self, project_id: str, storage_bucket: str = ""):
         self.project_id = project_id
+        self.storage_bucket = storage_bucket
         self._init_firebase()
         self.db = firestore.client()
+        self.image_uploader = None
+        if storage_bucket:
+            from image_uploader import ImageUploader
+            self.image_uploader = ImageUploader()
 
     def _init_firebase(self) -> None:
         """Initialise the Firebase Admin SDK if not already initialised.
@@ -42,6 +47,8 @@ class FirestoreWriter:
         in Cloud Run via the attached service account."""
         if not firebase_admin._apps:
             app_options = {"projectId": self.project_id}
+            if self.storage_bucket:
+                app_options["storageBucket"] = self.storage_bucket
             firebase_admin.initialize_app(options=app_options)
             logger.info("Firebase Admin SDK initialised for project '%s'", self.project_id)
         else:
@@ -86,15 +93,27 @@ class FirestoreWriter:
         return total_written
 
     def upsert_makes(self, makes: list[RegistryMake]) -> int:
-        """Upsert all makes into registry_makes/{make_id}. Returns doc count."""
+        """Upload logos to Storage then upsert makes into Firestore."""
         logger.info("Upserting %d makes", len(makes))
+        if self.image_uploader:
+            for make in makes:
+                if make.logo_url and not make.logo_url.startswith("https://storage.googleapis.com"):
+                    stored = self.image_uploader.upload_make_logo(make.id, make.logo_url)
+                    if stored:
+                        make.logo_url = stored
         count = self._batch_write("registry_makes", makes, lambda m: m.id)
         logger.info("Upserted %d makes", count)
         return count
 
     def upsert_models(self, models: list[RegistryModel]) -> int:
-        """Upsert all models into registry_models/{model_id}. Returns doc count."""
+        """Upload hero images to Storage then upsert models into Firestore."""
         logger.info("Upserting %d models", len(models))
+        if self.image_uploader:
+            for model in models:
+                if model.image_url and not model.image_url.startswith("https://storage.googleapis.com"):
+                    stored = self.image_uploader.upload_model_image(model.id, model.image_url)
+                    if stored:
+                        model.image_url = stored
         count = self._batch_write("registry_models", models, lambda m: m.id)
         logger.info("Upserted %d models", count)
         return count

@@ -119,6 +119,7 @@ dependencies {
 
     // Image loading (local files only — no network)
     implementation(libs.coil.compose)
+    implementation(libs.coil.network.okhttp)
 
     // Lottie animations (offline JSON assets only)
     implementation(libs.lottie.compose)

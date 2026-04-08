@@ -191,7 +191,7 @@ def main() -> None:
         run_best_practices,
     )
 
-    writer = FirestoreWriter(project_id=config.GCP_PROJECT_ID)
+    writer = FirestoreWriter(project_id=config.GCP_PROJECT_ID, storage_bucket=config.STORAGE_BUCKET)
     stats: dict = {
         "makes_count": 0,
         "models_count": 0,

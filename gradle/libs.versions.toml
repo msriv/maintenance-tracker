@@ -83,6 +83,7 @@ vico-compose-m3 = { group = "com.patrykandpatrick.vico", name = "compose-m3", ve
 
 # Image loading (local files only)
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 
 # Lottie animations (offline JSON assets)
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moto.tracker.domain.model.RegistryMake
 import com.moto.tracker.domain.model.RegistryModel
+import com.moto.tracker.domain.model.VehicleType
 import com.moto.tracker.domain.usecase.registry.GetRegistryMakesUseCase
 import com.moto.tracker.domain.usecase.registry.GetRegistryModelsUseCase
 import com.moto.tracker.domain.usecase.registry.SyncRegistryUseCase
@@ -23,6 +24,7 @@ data class VehicleRegistryUiState(
     val selectedMake: RegistryMake? = null,
     val models: List<RegistryModel> = emptyList(),
     val searchQuery: String = "",
+    val typeFilter: VehicleType? = null,
     val isSyncing: Boolean = false,
     val errorMessage: String? = null
 ) {
@@ -31,10 +33,13 @@ data class VehicleRegistryUiState(
         else makes.filter { it.name.contains(searchQuery, ignoreCase = true) }
 
     val filteredModels: List<RegistryModel>
-        get() = if (searchQuery.isBlank()) models
-        else models.filter {
-            it.model.contains(searchQuery, ignoreCase = true) ||
-                it.variants.any { v -> v.contains(searchQuery, ignoreCase = true) }
+        get() {
+            var result = if (typeFilter != null) models.filter { it.vehicleType == typeFilter } else models
+            if (searchQuery.isNotBlank()) result = result.filter {
+                it.model.contains(searchQuery, ignoreCase = true) ||
+                    it.variants.any { v -> v.contains(searchQuery, ignoreCase = true) }
+            }
+            return result
         }
 }
 
@@ -80,6 +85,10 @@ class VehicleRegistryViewModel @Inject constructor(
 
     fun updateSearchQuery(query: String) {
         _uiState.update { it.copy(searchQuery = query) }
+    }
+
+    fun setTypeFilter(type: VehicleType?) {
+        _uiState.update { it.copy(typeFilter = type) }
     }
 
     fun syncRegistry() {

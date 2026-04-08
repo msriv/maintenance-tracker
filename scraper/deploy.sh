@@ -27,7 +27,8 @@ for arg in "$@"; do
   esac
 done
 
-ENV_VARS="SCRAPER_PROJECT_ID=${PROJECT_ID},LOG_LEVEL=INFO,RATE_LIMIT_SECONDS=1.0,MAX_RETRIES=3,NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-},NHTSA_RATE_LIMIT=1.0,NHTSA_BATCH_SIZE=100,NHTSA_BATCH_PAUSE_SECONDS=10,NHTSA_WORKERS=5"
+STORAGE_BUCKET="${PROJECT_ID}.firebasestorage.app"
+ENV_VARS="SCRAPER_PROJECT_ID=${PROJECT_ID},STORAGE_BUCKET=${STORAGE_BUCKET},LOG_LEVEL=INFO,RATE_LIMIT_SECONDS=1.0,MAX_RETRIES=3,NOTIFY_WEBHOOK_URL=${NOTIFY_WEBHOOK_URL:-},NHTSA_RATE_LIMIT=1.0,NHTSA_BATCH_SIZE=100,NHTSA_BATCH_PAUSE_SECONDS=10,NHTSA_WORKERS=5"
 
 echo "=== MotoTracker Scraper Deployment ==="
 echo "Project:         ${PROJECT_ID}"
@@ -81,6 +82,12 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
   --role="roles/run.invoker" \
+  --condition=None --quiet
+
+# Needed to upload make logos and model images to Firebase Storage
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${SERVICE_ACCOUNT_EMAIL}" \
+  --role="roles/storage.objectAdmin" \
   --condition=None --quiet
 echo "      IAM roles granted."
 

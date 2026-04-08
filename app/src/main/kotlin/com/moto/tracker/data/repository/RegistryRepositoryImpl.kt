@@ -85,6 +85,7 @@ class RegistryRepositoryImpl @Inject constructor(
                     variantsJson = doc.getString("variantsJson") ?: "[]",
                     vehicleType = doc.getString("vehicleType") ?: "BIKE",
                     displacementCc = doc.getLong("displacementCc")?.toInt(),
+                    imageUrl = doc.getString("imageUrl"),
                     updatedAt = doc.getLong("updatedAt") ?: System.currentTimeMillis()
                 )
             }

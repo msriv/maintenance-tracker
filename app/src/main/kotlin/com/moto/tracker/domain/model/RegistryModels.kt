@@ -17,6 +17,7 @@ data class RegistryModel(
     val variants: List<String>,
     val vehicleType: VehicleType,
     val displacementCc: Int? = null,
+    val imageUrl: String? = null,
     val updatedAt: Long
 )
 

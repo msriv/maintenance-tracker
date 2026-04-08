@@ -1,5 +1,6 @@
 package com.moto.tracker.data.local.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -25,6 +26,7 @@ data class RegistryModelEntity(
     val variantsJson: String,    // JSON array of variant strings
     val vehicleType: String,     // VehicleType enum name
     val displacementCc: Int? = null,
+    @ColumnInfo(defaultValue = "") val imageUrl: String? = null,
     val updatedAt: Long
 )
 

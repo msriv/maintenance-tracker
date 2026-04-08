@@ -2,9 +2,21 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Public registry — readable by all authenticated and unauthenticated clients.
+    // Public registry — readable by all clients.
     // Writes are only allowed via the Admin SDK (service account) used by the scraper.
-    match /registry/{document=**} {
+    match /registry_makes/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /registry_models/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /registry_schedules/{document=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /best_practices/{document=**} {
       allow read: if true;
       allow write: if false;
     }

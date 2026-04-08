@@ -158,13 +158,22 @@ class BikeScraper(BaseScraper):
                 continue
             seen_ids.add(make_id)
 
+            # Extract brand logo from the sibling <img> inside the same container
+            logo_url = None
+            parent = link.parent
+            if parent:
+                img = parent.find("img")
+                if img and img.get("src"):
+                    raw = img["src"]
+                    logo_url = raw if raw.startswith("http") else urljoin(BASE_URL, raw)
+
             country = _BRAND_COUNTRIES.get(name.lower())
             makes.append(
                 RegistryMake(
                     id=make_id,
                     name=name,
                     country=country,
-                    logo_url=None,
+                    logo_url=logo_url,
                     updated_at=datetime.utcnow(),
                 )
             )
@@ -218,8 +227,8 @@ class BikeScraper(BaseScraper):
             model_slug = slugify(model_name)
             model_id = f"{make_id}_{model_slug}_{year_from}"
 
-            # Fetch variants by visiting the model detail page
-            variants = self._fetch_variants(model_link, make_id, model_slug)
+            # Fetch variants and hero image by visiting the model detail page
+            variants, image_url = self._fetch_variants_and_image(model_link, make_id, model_slug)
 
             models.append(
                 RegistryModel(
@@ -231,6 +240,7 @@ class BikeScraper(BaseScraper):
                     variants=variants,
                     vehicle_type=vehicle_type,
                     displacement_cc=displacement_cc,
+                    image_url=image_url,
                     updated_at=datetime.utcnow(),
                 )
             )
@@ -238,34 +248,33 @@ class BikeScraper(BaseScraper):
         self.logger.info("Found %d models for make '%s'", len(models), make_id)
         return models
 
-    def _fetch_variants(
+    def _fetch_variants_and_image(
         self,
         model_link,
         make_id: str,
         model_slug: str,
-    ) -> list[str]:
+    ) -> tuple[list[str], Optional[str]]:
         """
-        Attempt to find variant names for a model. bikez.com lists variants as
-        sub-links from the model listing page. Returns a list of variant name strings.
+        Visit the model detail page to collect variant names and the hero image URL.
+        Returns (variants, image_url).
         """
         href = model_link.get("href", "")
         if not href:
-            return []
+            return [], None
 
         model_url = urljoin(BASE_URL, href)
         response = self.get(model_url)
         if response is None:
-            return []
+            return [], None
 
         soup = BeautifulSoup(response.text, "html.parser")
-        variants: list[str] = []
 
-        # Look for variant table or list — bikez groups variants under the model page
+        # --- Variants ---
+        variants: list[str] = []
         variant_links = soup.select("a[href*='specifications']")
         seen: set[str] = set()
         for link in variant_links:
             variant_name = link.get_text(strip=True)
-            # Filter out navigation links and generic labels
             if (
                 variant_name
                 and len(variant_name) > 1
@@ -275,7 +284,28 @@ class BikeScraper(BaseScraper):
                 seen.add(variant_name)
                 variants.append(variant_name)
 
-        return variants[:10]  # Cap to avoid noise from navigation links
+        # --- Hero image ---
+        # bikez.com model pages have the main bike photo in a prominent <img>
+        # near the top — try several selectors in priority order.
+        image_url: Optional[str] = None
+        candidate_selectors = [
+            "div.bikeimage img",
+            "div.bike-image img",
+            "div.main-image img",
+            "div#bikeimage img",
+            "td.bikeimage img",
+            "img.bikeimage",
+            "img[src*='/pictures/']",
+            "img[src*='/images/bikes/']",
+        ]
+        for selector in candidate_selectors:
+            img = soup.select_one(selector)
+            if img and img.get("src"):
+                raw = img["src"]
+                image_url = raw if raw.startswith("http") else urljoin(BASE_URL, raw)
+                break
+
+        return variants[:10], image_url
 
     def scrape_all(self) -> tuple[list[RegistryMake], list[RegistryModel]]:
         """
